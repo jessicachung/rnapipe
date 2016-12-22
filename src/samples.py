@@ -13,8 +13,6 @@ import itertools
 from glob import glob
 from collections import defaultdict
 
-logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.DEBUG)
-
 class Sample(object):
     '''Class for sample information'''
     def __init__(self, name, condition, covariates = None, files = None):
@@ -154,7 +152,4 @@ def contains_technical_replicates(files):
     '''Check files and return True if there are technical replicates'''
     r1_match = [re.match(r".*_R1\.fastq\.gz$", f) for f in files]
     replicates = sum([x is not None for x in r1_match])
-    if replicates > 1:
-        return True
-    else:
-        return False
+    return replicates > 1
