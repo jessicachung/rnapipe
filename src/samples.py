@@ -7,11 +7,15 @@ Sample information for RNA-seq analysis. Contains:
 '''
 
 import logging
+import os
 import re
 import sys
 import itertools
 from glob import glob
 from collections import defaultdict
+
+# TODO: Move this elsewhere
+DEFAULT_METADATA = {"id": "id", "lb": "lb", "r": "R1", "lane": None}
 
 class Sample(object):
     '''Class for sample information'''
@@ -20,16 +24,77 @@ class Sample(object):
         self.condition = condition
         self.files = files if files else []
         self.covariates = covariates if covariates else []
-        self.technical_replicates = contains_technical_replicates(self.files)
+        self.technical_replicates = self.contains_technical_replicates(self.files)
+
+    def __repr__(self):
+        str = "Sample(name={}, condition={}, files={}, covariates={}, technical_replicates={})".format(
+                self.name, self.condition, self.files, self.covariates, self.technical_replicates)
+        return str
 
     def info(self):
+        "Pretty representation of the Sample object"
+        filenames = [f.path for f in self.files]
         str = "\n".join(["\t%s" % self.name,
                          "\t\tCondition:  %s" % self.condition,
                          "\t\tCovariates: %s" % self.covariates,
                          "\t\tTech repl:  %s" % self.technical_replicates,
                          "\t\tFiles:      %s" % \
-                         "\n\t\t            ".join(self.files)])
+                         "\n\t\t            ".join(filenames)])
         return str
+
+    def contains_technical_replicates(self, files):
+        '''Check files and return True if there are technical replicates'''
+        is_R1 = [f.R1_or_R2 == "R1" for f in files]
+        replicates = sum(is_R1)
+        return replicates > 1
+
+class SeqFile(object):
+    '''Class for sequencing file'''
+    def __init__(self, path):
+        self.path = path
+        self.name = None
+        self.R1_or_R2 = None
+        self.lane = None
+        self.id = None
+        self.library = None
+
+        # Parse metadata using filename
+        self.parse_metadata()
+
+    def __repr__(self):
+        str = "SeqFile(name={}, R1_or_R2={}, lane={}, id={}, library={}, path={})".format(
+                self.name, self.R1_or_R2, self.lane, self.id, self.library, 
+                self.path)
+        return str
+
+    def get_metadata(self, match, re_group):
+        '''Retreive metadata from regex match and parse. If no metadata
+        provided, use defaults.'''
+        result = match.group(re_group)
+        if result:
+            value = result.split("_")[-1]
+        else:
+            value = DEFAULT_METADATA[re_group]
+        return value
+
+    def parse_metadata(self):
+        metadata_string = re.sub(".fastq(.gz)?$", "", os.path.basename(self.path))
+        metadata_list = metadata_string.split("_")
+        try:
+            metadata_match = re.match("^(SM_)?(?P<sm>[A-Za-z0-9-]+)(?P<id>_ID_[A-Za-z0-9-]+)?(?P<lb>_LB_[A-Za-z0-9-]+)?(?P<lane>_L[0-9]+)?(?P<r>_R[1,2])?$", metadata_string)
+            logging.debug(metadata_match.groups())
+        except AttributeError:
+            logging.warning("FASTQ file {} is not in the correct name format. " \
+                  "File will not be included in analysis.".format(self.path))
+            return
+        # Set new values
+        self.name = self.get_metadata(metadata_match, "sm")
+        self.R1_or_R2 = self.get_metadata(metadata_match, "r")
+        self.lane = self.get_metadata(metadata_match, "lane")
+        self.id = self.get_metadata(metadata_match, "id")
+        self.library = self.get_metadata(metadata_match, "lb")
+        return
+
 
 def get_all_fastq(seq_dir):
     '''Get a list of all fastq files from the specified seq_dir.'''
@@ -41,19 +106,17 @@ def get_all_fastq(seq_dir):
     logging.debug("Files in seq_dir {}: {}".format(seq_dir, ",".join(seqfiles)))
     return seqfiles
 
+
 def group_fastq_on_sm(seqfiles):
     '''Group fastq files from the same sample (e.g. paired data, technical
     replicates) into a dictionary with the SM tag as the key.'''
     sm_dict = defaultdict(list)
     for filename in seqfiles:
-        try:
-            # Check that the file is named correctly
-            sm = re.search('(.+\/)?SM_([A-Za-z0-9-.]+)_ID_[A-Za-z0-9-.]+_' \
-                'LB_[A-Za-z0-9-.]+_L[0-9]+_R[12].fastq.gz', filename).group(2)
-            sm_dict[sm].append(filename)
-        except AttributeError:
-            logging.warning("FASTQ file {} is not in the correct name format. " \
-                  "File will not be included in analysis.".format(filename))
+        logging.debug("# PARSING FILENAME: " + filename)
+        f = SeqFile(filename)
+        logging.debug(f)
+        if f.name:
+            sm_dict[f.name].append(f)
     if not sm_dict:
         logging.critical("Error: No fastq.gz files included in analysis")
     logging.debug("Sample file groups: {}".format(sm_dict))
@@ -85,14 +148,16 @@ def parse_samples(seq_dir, samples_csv):
             if re.search("[+-]", ",".join(info[1:])):
                 logging.critical("Error: Non-allowed characters (+,-) in " \
                     "sample CSV file condition or covariate column.")
-                sys.exit(1)
+                sys.exit(1) # TODO: Change to predefined exit codes
             # Remove SM tag if included in CSV file
             name = re.sub("^SM_", "", info[0])
             condition = info[1]
             covariates = info[2:]
+            logging.debug(sm_dict[name])
             sample = Sample(name=name, condition=condition,
                 covariates=covariates, files=sm_dict[name])
             sample_dict[condition].append(sample)
+            logging.debug(sample)
         except IndexError:
             logging.critical("Incorrectly formatted samples.csv file.")
             sys.exit(1)
@@ -148,8 +213,3 @@ def check_conditions(comparisons_list, sample_dict):
                     "analyses with this sample may fail.")
     return
 
-def contains_technical_replicates(files):
-    '''Check files and return True if there are technical replicates'''
-    r1_match = [re.match(r".*_R1\.fastq\.gz$", f) for f in files]
-    replicates = sum([x is not None for x in r1_match])
-    return replicates > 1

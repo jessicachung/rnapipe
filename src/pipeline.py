@@ -5,7 +5,7 @@ Build the pipeline workflow by plumbing the stages together.
 from ruffus import Pipeline, suffix, formatter, add_inputs, output_from
 from stages import PipelineStages
 from pipeline_base.utils import safe_make_dir
-from samples import parse_samples, contains_technical_replicates
+from samples import parse_samples
 from os import path
 from utils import path_list_join
 import error_codes
@@ -57,7 +57,7 @@ def make_pipeline(state):
         return output_path
 
     output_dir = get_output_paths(state)
-    print(output_dir)
+    logging.debug(output_dir)
 
     safe_make_dir(output_dir["alignments"])
     safe_make_dir(output_dir["seq"])
