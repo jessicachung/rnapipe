@@ -7,9 +7,9 @@ setup(
     version='0.0.1',
     author='Jessica Chung, Bernie Pope',
     author_email='jchung@unimelb.edu.au',
-    packages=['src'],
+    packages=['rnapipe'],
     entry_points={
-        'console_scripts': ['rnapipe = src.main:main']
+        'console_scripts': ['rnapipe = rnapipe.main:main']
     },
     url='https://github.com/jessicachung/rnapipe',
     license='LICENSE',
@@ -17,7 +17,6 @@ setup(
      with support for running pipeline stages on a distributed compute cluster.',
     long_description=open('README.md').read(),
     install_requires=[
-        "ruffus == 2.6.3",
-        "pipeline_base == 1.0.0"
+        "ruffus == 2.6.3"
     ],
 )

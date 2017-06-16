@@ -3,12 +3,12 @@ Build the pipeline workflow by plumbing the stages together.
 '''
 
 from ruffus import Pipeline, suffix, formatter, add_inputs, output_from
-from stages import PipelineStages
+from rnapipe.stages import PipelineStages
 from pipeline_base.utils import safe_make_dir
-from samples import parse_samples
+from rnapipe.samples import parse_samples
 from os import path
-from utils import path_list_join
-import error_codes
+from rnapipe.utils import path_list_join
+import rnapipe.error_codes
 import logging
 
 logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.DEBUG)
