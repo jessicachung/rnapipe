@@ -13,9 +13,7 @@ import sys
 import itertools
 from glob import glob
 from collections import defaultdict
-
-# TODO: Move this elsewhere
-DEFAULT_METADATA = {"id": "id", "lb": "lb", "r": "R1", "lane": None}
+from rnapipe.constants import *
 
 class Sample(object):
     '''Class for sample information'''
@@ -142,11 +140,11 @@ def parse_samples_csv(samples_csv):
         info = [x.strip() for x in line.split(",")]
         if len(info) < 2:
             logging.critical("Incorrectly formatted samples.csv file.")
-            sys.exit(1)
+            sys.exit(EXIT_INVALID_CSV)
         if re.search("[+-]", ",".join(info[1:])):
             logging.critical("Error: Non-allowed characters (+,-) in " \
                 "sample CSV file condition or covariate column.")
-            sys.exit(1) # TODO: Change to predefined exit codes
+            sys.exit(EXIT_INVALID_CSV)
         # Remove SM tag if included in CSV file
         name = re.sub("^SM_", "", info[0])
         sample_list.append(info)
@@ -154,7 +152,7 @@ def parse_samples_csv(samples_csv):
     if len(set([len(x) for x in sample_list])) != 1:
         logging.critical("The number of fields in the samples.csv file " \
             "is inconsistent.")
-        sys.exit(1)
+        sys.exit(EXIT_INVALID_CSV)
     return sample_list
 
 def parse_samples(seq_dir, samples_csv):
@@ -173,7 +171,7 @@ def parse_samples(seq_dir, samples_csv):
             name = info[0]
             logging.debug(seqfile_dict[name])
             sample = Sample(name=name, condition=info[1],
-                            covariates=info[2:], files=sm_dict[name])
+                            covariates=info[2:], files=seqfile_dict[name])
             sample_dict[info[1]].append(sample)
             logging.debug(sample)
         except KeyError as e:
@@ -207,7 +205,7 @@ def check_conditions(comparisons_list, sample_dict):
     if not all([len(c) == 2 for c in comparisons_list]):
         logging.error("Some comparisons do not have exactly 2 conditions. " \
                 "Edit your comparison_csv file and rerun.")
-        sys.exit(1)
+        sys.exit(EXIT_INVALID_CSV)
 
     # Check conditions are concordant
     for c in sample_conditions:
@@ -219,7 +217,7 @@ def check_conditions(comparisons_list, sample_dict):
         if c not in sample_conditions:
             logging.critical("Condition {} is listed in comparisons_csv but " \
                     "has no samples in samples_csv.".format(c))
-            sys.exit(1)
+            sys.exit(EXIT_INVALID_CSV)
 
     # Check number of replicates per condition
     for c in sample_dict:
