@@ -107,7 +107,7 @@ def get_all_fastq(seq_dir):
     return seqfiles
 
 
-def group_fastq_on_sm(seqfiles):
+def group_fastq_on_sample_name(seqfiles):
     '''Group fastq files from the same sample (e.g. paired data, technical
     replicates) into a dictionary with the SM tag as the key.'''
     sm_dict = defaultdict(list)
@@ -126,11 +126,36 @@ def read_csv(filename):
     '''Read in CSV file and remove comments after '#' and empty lines'''
     csv_list = []
     with open(filename) as f:
-        for line in f:
-            line = line.partition('#')[0].strip()
-            if line:
-                csv_list.append(line)
+        contents = f.read().split("\n")
+    # Remove comments and empty lines
+    for line in contents:
+        line = line.partition('#')[0].strip()
+        if line:
+            csv_list.append(line)
     return csv_list
+
+def parse_samples_csv(samples_csv):
+    '''Return samples in a nested list'''
+    sample_csv_list = read_csv(samples_csv)
+    sample_list = []
+    for line in sample_csv_list:
+        info = [x.strip() for x in line.split(",")]
+        if len(info) < 2:
+            logging.critical("Incorrectly formatted samples.csv file.")
+            sys.exit(1)
+        if re.search("[+-]", ",".join(info[1:])):
+            logging.critical("Error: Non-allowed characters (+,-) in " \
+                "sample CSV file condition or covariate column.")
+            sys.exit(1) # TODO: Change to predefined exit codes
+        # Remove SM tag if included in CSV file
+        name = re.sub("^SM_", "", info[0])
+        sample_list.append(info)
+    # Make sure all lines have the same number of fields
+    if len(set([len(x) for x in sample_list])) != 1:
+        logging.critical("The number of fields in the samples.csv file " \
+            "is inconsistent.")
+        sys.exit(1)
+    return sample_list
 
 def parse_samples(seq_dir, samples_csv):
     '''Parse sample information from the specified samples.csv file
@@ -138,29 +163,19 @@ def parse_samples(seq_dir, samples_csv):
     # Get all fastq files in directory
     seqfiles = get_all_fastq(seq_dir)
     # Group files on sample name
-    sm_dict = group_fastq_on_sm(seqfiles)
+    seqfile_dict = group_fastq_on_sample_name(seqfiles)
     # Parse sample.csv file
-    sample_csv_list = read_csv(samples_csv)
+    sample_csv_list = parse_samples_csv(samples_csv)
+    # Create sample dictionary where each condition is a key
     sample_dict = defaultdict(list)
-    for line in sample_csv_list:
+    for info in sample_csv_list:
         try:
-            info = [x.strip() for x in line.split(",")]
-            if re.search("[+-]", ",".join(info[1:])):
-                logging.critical("Error: Non-allowed characters (+,-) in " \
-                    "sample CSV file condition or covariate column.")
-                sys.exit(1) # TODO: Change to predefined exit codes
-            # Remove SM tag if included in CSV file
-            name = re.sub("^SM_", "", info[0])
-            condition = info[1]
-            covariates = info[2:]
-            logging.debug(sm_dict[name])
-            sample = Sample(name=name, condition=condition,
-                covariates=covariates, files=sm_dict[name])
-            sample_dict[condition].append(sample)
+            name = info[0]
+            logging.debug(seqfile_dict[name])
+            sample = Sample(name=name, condition=info[1],
+                            covariates=info[2:], files=sm_dict[name])
+            sample_dict[info[1]].append(sample)
             logging.debug(sample)
-        except IndexError:
-            logging.critical("Incorrectly formatted samples.csv file.")
-            sys.exit(1)
         except KeyError as e:
             logging.warning("Sample {} has no fastq files in seq_dir.").format(e.args[0])
     logging.debug("Sample dictionary: {}".format(sample_dict))
