@@ -10,7 +10,7 @@ as config, options, DRMAA and the logger.
 from pipeline_base.utils import safe_make_dir, run_java
 from pipeline_base.stages import Stages
 from os import path
-from utils import *
+from rnapipe.utils import *
 
 # Barcoo
 # if options.cluster == "barcoo":

@@ -1,6 +1,6 @@
 '''Run the pipeline as a program.'''
 
-from pipeline import make_pipeline
+from rnapipe.pipeline import make_pipeline
 import pipeline_base.main
 import pkg_resources 
 

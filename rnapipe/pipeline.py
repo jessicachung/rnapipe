@@ -3,12 +3,12 @@ Build the pipeline workflow by plumbing the stages together.
 '''
 
 from ruffus import Pipeline, suffix, formatter, add_inputs, output_from
-from stages import PipelineStages
+from rnapipe.stages import PipelineStages
 from pipeline_base.utils import safe_make_dir
-from samples import parse_samples, contains_technical_replicates
+from rnapipe.samples import parse_samples
 from os import path
-from utils import path_list_join
-import error_codes
+from rnapipe.utils import path_list_join
+from rnapipe.constants import *
 import logging
 
 logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.DEBUG)
@@ -40,24 +40,13 @@ def make_pipeline(state):
     def get_output_paths(state):
         results_dir = state.config.get_options("results_dir")
         analysis_name = state.config.get_options("pipeline_id")
-        output_path = {
-            "fastqc": "qc/fastqc",
-            "post_trim_fastqc": "qc/post_trim_fastqc",
-            "seq": "seq",
-            "alignments": "alignments",
-            "star_index": "reference/star/",
-            "hisat_index": "reference/hisat/",
-            "counts": "counts",
-            "voom": "analysis/voom_{name}".format(name=analysis_name),
-            "edgeR": "analysis/edgeR_{name}".format(name=analysis_name),
-            "cuffdiff": "analysis/cuffdiff_{name}".format(name=analysis_name)
-        }
+        output_path = OUTPUT_PATHS
         output_path = [(a, path.join(results_dir, b)) for a,b in output_path.items()]
         output_path = dict(output_path)
         return output_path
 
     output_dir = get_output_paths(state)
-    print(output_dir)
+    logging.debug(output_dir)
 
     safe_make_dir(output_dir["alignments"])
     safe_make_dir(output_dir["seq"])
@@ -76,11 +65,11 @@ def make_pipeline(state):
     if alignment_method not in ["star", "hisat2"]:
         print("Error: Invalid alignment_method in config file. " \
               "Valid options are ['STAR', 'HISAT2'].")
-        exit(error_codes.INVALID_ARGUMENT)
+        exit(EXIT_INVALID_ARGUMENT)
     if count_method not in ["featurecounts", "htseq-count"]:
         print("Error: Invalid count_method in config file. " \
               "Valid options are ['featureCounts', 'HTSeq-count'].")
-        exit(error_codes.INVALID_ARGUMENT)
+        exit(EXIT_INVALID_ARGUMENT)
 
     index_provided = any([(alignment_method == "star" and \
                              state.config.get_options("star_index")),
