@@ -46,24 +46,33 @@ class Sample(object):
         replicates = sum(is_R1)
         return replicates > 1
 
-class SeqFile(object):
-    '''Class for sequencing file'''
-    def __init__(self, path):
-        self.path = path
-        self.name = None
-        self.R1_or_R2 = None
+class TechnicalReplicate(object):
+    '''Class for each technical replicate'''
+    def __init__(self, R1, R2=None):
+        self.R1_path = R1
+        self.R2_path = R2
+        self.sample_name = None
+        self.replicate_id = None
         self.lane = None
         self.id = None
         self.library = None
-        self.trimmed_filename = re.sub(".fastq.gz$", ".trimmed.fastq.gz", os.path.basename(path))
+        self.R1_trimmed = re.sub(".fastq.gz$", ".trimmed.fastq.gz", os.path.basename(self.R1_path))
+        if self.R1_path and self.R2_path:
+            self.is_PE = True
+            self.R2_trimmed = re.sub(".fastq.gz$", ".trimmed.fastq.gz", os.path.basename(self.R2_path))
+        else:
+            self.is_PE = False
+            self.R2_trimmed = None
 
         # Parse metadata using filename
         self.parse_metadata()
 
     def __repr__(self):
-        str = "SeqFile(name={}, R1_or_R2={}, lane={}, id={}, library={}, path={}, trimmed_filename={})".format(
-                self.name, self.R1_or_R2, self.lane, self.id, self.library, 
-                self.path, self.trimmed_filename)
+        str = "TechnicalReplicate(sample_name={self.sample_name}, " \
+              "R1_path={self.R1_path}, R2_path={self.R2_path}, " \
+              "replicate_id={self.replicate_id}, lane={self.lane}, " \
+              "id={self.id}, library={self.library}, is_PE={self.is_PE}, " \
+              "R1_trimmed={self.R1_trimmed}, R2_trimmed={self.R2_trimmed}"
         return str
 
     def get_metadata(self, match, re_group):
@@ -77,18 +86,20 @@ class SeqFile(object):
         return value
 
     def parse_metadata(self):
-        metadata_string = re.sub(".fastq(.gz)?$", "", os.path.basename(self.path))
+        metadata_string = re.sub("_R1.fastq.gz$", "", os.path.basename(self.R1_path))
         metadata_list = metadata_string.split("_")
         try:
-            metadata_match = re.match("^(SM_)?(?P<sm>[A-Za-z0-9-]+)(?P<id>_ID_[A-Za-z0-9-]+)?(?P<lb>_LB_[A-Za-z0-9-]+)?(?P<lane>_L[0-9]+)?(?P<r>_R[1,2])?$", metadata_string)
+            metadata_match = re.match("^(SM_)?(?P<sm>[A-Za-z0-9-]+)" \
+                    "(?P<id>_ID_[A-Za-z0-9-]+)?(?P<lb>_LB_[A-Za-z0-9-]+)?" \
+                    "(?P<lane>_L[0-9]+)?$", metadata_string)
             logging.debug(metadata_match.groups())
         except AttributeError:
             logging.warning("FASTQ file {} is not in the correct name format. " \
-                  "File will not be included in analysis.".format(self.path))
+                  "File will not be included in analysis.".format(self.R1_path))
             return
         # Set new values
-        self.name = self.get_metadata(metadata_match, "sm")
-        self.R1_or_R2 = self.get_metadata(metadata_match, "r")
+        self.sample_name = self.get_metadata(metadata_match, "sm")
+        self.replicate_id = metadata_string
         self.lane = self.get_metadata(metadata_match, "lane")
         self.id = self.get_metadata(metadata_match, "id")
         self.library = self.get_metadata(metadata_match, "lb")
