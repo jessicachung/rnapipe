@@ -55,14 +55,15 @@ class SeqFile(object):
         self.lane = None
         self.id = None
         self.library = None
+        self.trimmed_filename = re.sub(".fastq.gz$", ".trimmed.fastq.gz", os.path.basename(path))
 
         # Parse metadata using filename
         self.parse_metadata()
 
     def __repr__(self):
-        str = "SeqFile(name={}, R1_or_R2={}, lane={}, id={}, library={}, path={})".format(
+        str = "SeqFile(name={}, R1_or_R2={}, lane={}, id={}, library={}, path={}, trimmed_filename={})".format(
                 self.name, self.R1_or_R2, self.lane, self.id, self.library, 
-                self.path)
+                self.path, self.trimmed_filename)
         return str
 
     def get_metadata(self, match, re_group):
@@ -226,3 +227,10 @@ def check_conditions(comparisons_list, sample_dict):
                     "analyses with this sample may fail.")
     return
 
+def check_paired_files(R1, R2):
+    files_1 = [re.sub("_R1.fastq.gz$", "", x) for x in R1]
+    files_2 = [re.sub("_R2.fastq.gz$", "", x) for x in R2]
+    if not (sorted(files_1) == sorted(files_2)):
+        logging.critical("Incorrect pairings")
+        sys.exit(99)   ## TODO
+    return

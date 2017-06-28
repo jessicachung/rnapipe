@@ -5,11 +5,13 @@ Build the pipeline workflow by plumbing the stages together.
 from ruffus import Pipeline, suffix, formatter, add_inputs, output_from
 from rnapipe.stages import PipelineStages
 from pipeline_base.utils import safe_make_dir
-from rnapipe.samples import parse_samples
+from rnapipe.samples import parse_samples, check_paired_files
 from os import path
-from rnapipe.utils import path_list_join
+from rnapipe.utils import *
 from rnapipe.constants import *
 import logging
+import re
+import sys
 
 logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.DEBUG)
 
@@ -17,40 +19,6 @@ def make_pipeline(state):
     '''Build the pipeline by constructing stages and connecting them together'''
     # Build an empty pipeline
     pipeline = Pipeline(name="rnapipe")
-    # Stages are dependent on the state
-    stages = PipelineStages(state)
-
-    # Get a list of all samples plus their attributes (condition, covariates, etc.)
-    samples = parse_samples(seq_dir=state.config.get_options("seq_dir"),
-                            samples_csv=state.config.get_options("samples_csv"))
-    # Get a list of the samples
-    sample_list = [s for sample_list in samples.values() for s in sample_list]
-    # Check if there are multiple technical replicates per sample
-    technical_replicates =  any([s.technical_replicates for s in sample_list])
-    # Get a list of paths to all the FASTQ files
-    fastq_files = [s.files for s in sample_list]
-    fastq_files = [item for sublist in fastq_files for item in sublist]
-
-    # Print out samples
-    sample_text = [s.info() for s in sample_list]
-    logging.debug("Analysis samples:\n{}".format("\n".join(sample_text)))
-
-    # Make directories
-    # NOTE: Move this to somewhere else?
-    def get_output_paths(state):
-        results_dir = state.config.get_options("results_dir")
-        analysis_name = state.config.get_options("pipeline_id")
-        output_path = OUTPUT_PATHS
-        output_path = [(a, path.join(results_dir, b)) for a,b in output_path.items()]
-        output_path = dict(output_path)
-        return output_path
-
-    output_dir = get_output_paths(state)
-    logging.debug(output_dir)
-
-    safe_make_dir(output_dir["alignments"])
-    safe_make_dir(output_dir["seq"])
-    safe_make_dir(output_dir["counts"])
 
     # Config options
     paired_end = state.config.get_options("paired_end")
@@ -60,21 +28,60 @@ def make_pipeline(state):
     reference_genome = state.config.get_options("reference_genome")
     gene_ref = state.config.get_options("gene_ref")
 
+    # Get a dict of all samples plus their attributes grouped by condition
+    samples = parse_samples(seq_dir=state.config.get_options("seq_dir"),
+                            samples_csv=state.config.get_options("samples_csv"))
+    # Get a list of the samples
+    sample_list = [s for sample_list in samples.values() for s in sample_list]
+    # Check if there are multiple technical replicates per sample
+    technical_replicates =  any([s.technical_replicates for s in sample_list])
+    # Get a list of seqfiles
+    seqfiles = [s.files for s in sample_list]
+    seqfiles = [(item.path, item) for sublist in seqfiles for item in sublist]
+    seqfiles = dict(seqfiles)
+    fastq_files = seqfiles.keys()
+    # Get R1 and R2 files
+    if paired_end:
+        R1_files = [x for x in fastq_files if re.search("R1.fastq.gz$", x)]
+        R2_files = [x for x in fastq_files if re.search("R2.fastq.gz$", x)]
+        check_paired_files(R1_files, R2_files)
+    else:
+        R1_files = fastq_files
+    # Get dictionary of seqfiles with the trimmed filename as the key
+    trim_seqfiles = [(seqfiles[key].trimmed_filename, value) for key, value in seqfiles.items()]
+    trim_seqfiles = dict(trim_seqfiles)
+
+    # Print out samples
+    sample_text = [s.info() for s in sample_list]
+    logging.debug("Analysis samples:\n{}".format("\n".join(sample_text)))
+
+    # Stages are dependent on the state. SeqFile objects are also passed so
+    # we can get metadata later.
+    stages = PipelineStages(state, samples=trim_seqfiles)
+
+    # Make directories
+    output_dir = get_output_paths(
+            results_dir=state.config.get_options("results_dir"),
+            default_paths=OUTPUT_PATHS)
+    make_output_dirs(output_dir)
+    logging.debug(output_dir)
+
     # NOTE: Move this elsewhere
     # Check if alignment_method is valid
     if alignment_method not in ["star", "hisat2"]:
-        print("Error: Invalid alignment_method in config file. " \
-              "Valid options are ['STAR', 'HISAT2'].")
+        logging.critical("Error: Invalid alignment_method in config file. " \
+                "Valid options are ['STAR', 'HISAT2'].")
         exit(EXIT_INVALID_ARGUMENT)
     if count_method not in ["featurecounts", "htseq-count"]:
-        print("Error: Invalid count_method in config file. " \
-              "Valid options are ['featureCounts', 'HTSeq-count'].")
+        logging.critical("Error: Invalid count_method in config file. " \
+                "Valid options are ['featureCounts', 'HTSeq-count'].")
         exit(EXIT_INVALID_ARGUMENT)
 
     index_provided = any([(alignment_method == "star" and \
                              state.config.get_options("star_index")),
-                         (alignment_method == "hisat" and \
+                         (alignment_method == "hisat2" and \
                            state.config.get_options("hisat_index"))])
+    logging.debug("Index provided: " + str(index_provided))
 
     # The original FASTQ files
     # This is a dummy stage. It is useful because it makes a node in the
@@ -82,7 +89,7 @@ def make_pipeline(state):
     pipeline.originate(
         task_func=stages.do_nothing,
         name="original_fastqs",
-        output=fastq_files)
+        output=R1_files)
 
     # Create reference index for alignment
     if not index_provided:
@@ -103,13 +110,14 @@ def make_pipeline(state):
                            ["SA", "Genome", "genomeParameters.txt"]),
                 extras=[output_dir["star_index"]])
 
-        elif alignment_method == "hisat":
+        elif alignment_method == "hisat2":
             # Create reference index for HISAT2
             hisat_basename = path.join(output_dir["hisat_index"], "genome")
             pipeline.transform(
                 task_func=stages.create_hisat_index,
                 name="create_hisat_index",
-                input=output_from(reference_genome),
+                input=output_from("reference_genome"),
+                filter=formatter(".*"),
                 add_inputs=add_inputs(gene_ref),
                 output=path_list_join(output_dir["hisat_index"],
                            ["genome.1.ht2", "genome.2.ht2"]),
@@ -123,11 +131,11 @@ def make_pipeline(state):
                 name="create_star_index",
                 output=path_list_join(output_dir["star_index"],
                            ["SA", "Genome", "genomeParameters.txt"]))
-        elif alignment_method == "hisat":
+        elif alignment_method == "hisat2":
             hisat_basename = state.config.get_options("hisat_index")
             output_dir["hisat_index"] = path.dirname(hisat_basename)
             prefix = path.basename(hisat_basename)
-            pipeline.transform(
+            pipeline.originate(
                 task_func=stages.do_nothing,
                 name="create_hisat_index",
                 output=path_list_join(output_dir["hisat_index"],
@@ -135,14 +143,26 @@ def make_pipeline(state):
                             "{prefix}.2.ht2".format(prefix=prefix)]))
 
     # Pre-trim FastQC
-    pipeline.transform(
-        task_func=stages.fastqc,
-        name="fastqc",
-        input=output_from("original_fastqs"),
-        filter=suffix(".fastq.gz"),
-        output="_fastqc.zip",
-        output_dir=output_dir["fastqc"],
-        extras=[output_dir["fastqc"]])
+    if paired_end:
+        pipeline.transform(
+            task_func=stages.fastqc,
+            name="fastqc",
+            input=output_from("original_fastqs"),
+            filter=formatter(".+/(?P<sample>[a-zA-Z0-9-_]+)_R1.fastq.gz"),
+            add_inputs=add_inputs("{path[0]}/{sample[0]}_R2.fastq.gz"),
+            output=path_list_join(output_dir["fastqc"],
+                       ["{sample[0]}_R1_fastqc.zip",
+                        "{sample[0]}_R2_fastqc.zip"]),
+            extras=[output_dir["fastqc"]])
+    else:
+        pipeline.transform(
+            task_func=stages.fastqc,
+            name="fastqc",
+            input=output_from("original_fastqs"),
+            filter=suffix(".fastq.gz"),
+            output="_fastqc.zip",
+            output_dir=output_dir["fastqc"],
+            extras=[output_dir["fastqc"]])
 
     # Trimmomatic
     if trim_reads and paired_end:
@@ -151,12 +171,13 @@ def make_pipeline(state):
             name="trim_reads",
             input=output_from("original_fastqs"),
             # Get R1 file and the corresponding R2 file
-            filter=formatter(".+/(?P<sample>[a-zA-Z0-9_]+)_R1.fastq.gz"),
+            filter=formatter(".+/(?P<sample>[a-zA-Z0-9-_]+)_R1.fastq.gz"),
             add_inputs=add_inputs("{path[0]}/{sample[0]}_R2.fastq.gz"),
             output=path_list_join(output_dir["seq"],
                        ["{sample[0]}_R1.trimmed.fastq.gz",
-                        "{sample[0]}_R1.unpaired.fastq.gz",
-                        "{sample[0]}_R2.trimmed.fastq.gz",
+                        "{sample[0]}_R2.trimmed.fastq.gz"]),
+            extras=path_list_join(output_dir["seq"],
+                       ["{sample[0]}_R1.unpaired.fastq.gz",
                         "{sample[0]}_R2.unpaired.fastq.gz"]))
     elif trim_reads:
         pipeline.transform(
@@ -168,6 +189,7 @@ def make_pipeline(state):
                              "{sample[0]}_R1.trimmed.fastq.gz"))
     else:
         # If trimming is skipped, create symlinks of FASTQ files in seq dir
+        # WIP
         pipeline.transform(
             task_func=stages.create_symlinks,
             name="create_symlinks",
@@ -205,20 +227,16 @@ def make_pipeline(state):
 
     # If there are technical replicates, each is mapped independently.
     # This is so each technical replicate maintains a separate read group.
-    # NOTE: Should the read group metadata be stored elsewhere instead of in filenames?
     if alignment_method == "star":
         align_task_name = "star_align"
         (pipeline.transform(
             task_func=stages.star_align,
             name=align_task_name,
             input=output_from(trim_task_name),
-            filter=formatter(".+/SM_(?P<sm>[a-zA-Z0-9-]+)_ID_" \
-                             "(?P<id>[a-zA-Z0-9-]+)_LB_(?P<lb>[a-zA-Z0-9]+)" \
-                             "_L(?P<ln>[0-9]+)_R1(.trimmed)?.fastq.gz"),
-            output="%s/{sm[0]}/star/SM_{sm[0]}_ID_{id[0]}_LB_{lb[0]}" \
-                   "_L{ln[0]}.star.bam" % output_dir["alignments"],
-            extras=[output_dir["star_index"], "{sm[0]}", "{id[0]}", "{lb[0]}",
-                    "{ln[0]}"])
+            filter=formatter(".+/(?P<sample>[a-zA-Z0-9-_]+)" \
+                             "_R[12](.trimmed)?.fastq.gz"),
+            output="%s/%s/star/{sample[0]}.star.bam" % (output_dir["alignments"], "{sample[0]}".split("_")[0]),
+            extras=[output_dir["star_index"], trim_seqfiles, ["{basename[0]}"]])  #### WIP
         ).follows("create_star_index")
 
     if alignment_method == "hisat2":

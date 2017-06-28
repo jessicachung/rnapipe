@@ -9,9 +9,12 @@ as config, options, DRMAA and the logger.
 
 from pipeline_base.utils import safe_make_dir, run_java
 from pipeline_base.stages import Stages
+from pipeline_base.runner import run_stage
 from os import path
 from rnapipe.utils import *
 
+
+### TODO
 # Barcoo
 # if options.cluster == "barcoo":
 TRIMMOMATIC_JAR = "/usr/local/trimmomatic/0.36/trimmomatic-0.36.jar"
@@ -25,17 +28,27 @@ java_tmp = "-Djava.io.tmpdir=$TMPDIR"
 
 # Local
 java_tmp = ""
-
+TRIMMOMATIC_JAR = "/mnt/transient_nfs/anaconda3/share/trimmomatic-0.36-3/trimmomatic.jar"
 
 class PipelineStages(Stages):
-    def __init__(self, *args, **kwargs):
-        super(PipelineStages, self).__init__(*args, **kwargs)
+    def __init__(self, state, samples, *args, **kwargs):
+        super(PipelineStages, self).__init__(state, *args, **kwargs)
         self.reference_genome = self.get_options("reference_genome")
         self.gene_ref = self.get_options("gene_ref")
         self.adapter_seq = self.get_options("adapter_seq")
         self.trimmomatic_parameters = self.get_options("trimmomatic_parameters")
         self.stranded = self.get_options("stranded")
         self.paired_end = self.get_options("paired_end")
+        self.all_samples = samples
+        logging.debug(self.all_samples)
+
+    def run_picard(self, stage, args):
+        mem = int(self.state.config.get_stage_options(stage, "mem"))
+        return run_java(self.state, stage, PICARD_JAR, mem, args)
+    
+    def run_trimmomatic(self, stage, args):
+        mem = int(self.state.config.get_stage_options(stage, "mem"))
+        return run_java(self.state, stage, TRIMMOMATIC_JAR, mem, args)
 
     def do_nothing(self, *args):
         '''Do nothing'''
@@ -51,24 +64,19 @@ class PipelineStages(Stages):
     def fastqc(self, input, outputs, fastqc_dir):
         '''Run FastQC on fastq files'''
         safe_make_dir(fastqc_dir)
-        create_empty_outputs(outputs)
         # If multiple fastq inputs, join into a string
-        if isinstance(input, list):
-            fastq_input = " ".join(input)
-        else:
-            fastq_input = input
+        fastq_input = " ".join(list(input))
         command = "fastqc -o {fastqc_dir} -f fastq {fastq_input}".format(
                       fastqc_dir=fastqc_dir,
                       fastq_input=fastq_input)
-        # run_stage(self.state, 'fastqc', command)
+        run_stage(self.state, "fastqc", command)
 
-    def trim_reads(self, inputs, outputs):
+    def trim_reads(self, inputs, outputs, unpaired_R1=None, unpaired_R2=None):
         '''Trim reads with Trimmomatic'''
-        create_empty_outputs(outputs)
         cores = self.get_stage_options("trim_reads", "cores")
         if self.paired_end:
             input_R1, input_R2 = inputs
-            output_R1, unpaired_R1, output_R2, unpaired_R2 = outputs
+            output_R1, output_R2 = outputs
             args = "PE -threads {n_threads} -phred33 {input_R1} {input_R2} " \
                    "{output_R1} {unpaired_R1} {output_R2} {unpaired_R2} " \
                    "ILLUMINACLIP:{adapter_seq}:2:30:10 {parameters}".format(
@@ -83,15 +91,12 @@ class PipelineStages(Stages):
                    "{parameters}".format(n_threads=cores, input_fastq=inputs,
                        output_fastq=outputs, adapter_seq=self.adapter_seq,
                        parameters=self.trimmomatic_parameters)
-        # run_trimmomatic("trim_reads", args)
+        self.run_trimmomatic("trim_reads", args)
 
 
     def create_star_index(self, inputs, outputs, output_dir):
         '''Generate index for STAR'''
         safe_make_dir(output_dir)
-        print(inputs)
-        print(output_dir)
-        print(outputs)
         create_empty_outputs(outputs)
         genome_fa, gene_gtf = inputs
         cores = self.get_stage_options("align", "cores")
@@ -100,21 +105,22 @@ class PipelineStages(Stages):
                   "--sjdbGTFfile {gene_gtf}".format(n_threads=cores,
                       output_dir=output_dir, genome_fa=genome_fa,
                       gene_gtf=gene_gtf)
-        # run_stage(self.state, "create_star_index", command)
+        run_stage(self.state, "star", command)
 
     def create_hisat_index(self, inputs, outputs, hisat_basename):
         '''Generate index for HISAT2'''
         safe_make_dir(path.dirname(hisat_basename))
-        create_empty_outputs(outputs)
         genome_fa, gene_gtf = inputs
         cores = self.get_stage_options("build_index", "cores")
-        command = "hisat2-build -p {n_threads} {genome_fa} {hisat_basename}" \
-                  "".format(n_threads=cores, genome_fa=genome_fa, gene_gtf=gene_gtf)
-        # run_stage(self.state, "create_hisat_index", command)
+        command = "hisat2-build -p {n_threads} {genome_fa} {basename}" \
+                  "".format(n_threads=cores, genome_fa=genome_fa, gene_gtf=gene_gtf,
+                      basename=hisat_basename)
+        run_stage(self.state, "hisat", command)
 
-    def star_align(self, inputs, outputs, ref_dir, sm, id, lb, ln):
+    def star_align(self, inputs, outputs, ref_dir, seqfile_dict):
         '''Align fastq files with STAR'''
         safe_make_dir(path.dirname(outputs))  # TODO: Change to list if multiple outputs
+        print(seqfile_dict)
         create_empty_outputs(outputs)
         cores = self.get_stage_options("align", "cores")
         # If PE fastq inputs, join into a string

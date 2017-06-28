@@ -3,18 +3,11 @@ Various utility functions that don't have a sensible home elsewhere
 '''
 import os
 import logging
+from pipeline_base.utils import safe_make_dir
 
 def path_list_join(dir, file_list):
     '''Join directory to a list of files'''
     return [os.path.join(dir, x) for x in file_list]
-
-def run_picard(state, stage, args):
-    mem = int(state.config.get_stage_options(stage, "mem"))
-    return run_java(state, stage, PICARD_JAR, mem, args)
-
-def run_trimmomatic(state, stage, args):
-    mem = int(state.config.get_stage_options(stage, "mem"))
-    return run_java(state, stage, TRIMMOMATIC_JAR, mem, args)
 
 def create_empty_outputs(outputs):
     '''Create empty dummy files for testing purposes'''
@@ -23,6 +16,18 @@ def create_empty_outputs(outputs):
     for output_filename in outputs:
         with open(output_filename, "w"):
             pass
+
+def get_output_paths(results_dir, default_paths):
+    '''Join base result directory path to output paths'''
+    output_paths = [(a, os.path.join(results_dir, b)) for a,b in 
+            default_paths.items()]
+    output_paths = dict(output_paths)
+    return output_paths
+
+def make_output_dirs(output_dict):
+    '''Create directory for each value in the dictionary'''
+    for dir in output_dict.values():
+        safe_make_dir(dir)
 
 # Copied from http://www.ruffus.org.uk/faq.html
 def re_symlink(input_file, soft_link_name):
