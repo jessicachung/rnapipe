@@ -10,8 +10,9 @@ as config, options, DRMAA and the logger.
 from pipeline_base.utils import safe_make_dir, run_java
 from pipeline_base.stages import Stages
 from pipeline_base.runner import run_stage
-from os import path
+import os
 from rnapipe.utils import *
+import re
 
 
 ### TODO
@@ -31,7 +32,7 @@ java_tmp = ""
 TRIMMOMATIC_JAR = "/mnt/transient_nfs/anaconda3/share/trimmomatic-0.36-3/trimmomatic.jar"
 
 class PipelineStages(Stages):
-    def __init__(self, state, samples, *args, **kwargs):
+    def __init__(self, state, experiment, *args, **kwargs):
         super(PipelineStages, self).__init__(state, *args, **kwargs)
         self.reference_genome = self.get_options("reference_genome")
         self.gene_ref = self.get_options("gene_ref")
@@ -39,8 +40,7 @@ class PipelineStages(Stages):
         self.trimmomatic_parameters = self.get_options("trimmomatic_parameters")
         self.stranded = self.get_options("stranded")
         self.paired_end = self.get_options("paired_end")
-        self.all_samples = samples
-        logging.debug(self.all_samples)
+        self.experiment = experiment
 
     def run_picard(self, stage, args):
         mem = int(self.state.config.get_stage_options(stage, "mem"))
@@ -97,7 +97,6 @@ class PipelineStages(Stages):
     def create_star_index(self, inputs, outputs, output_dir):
         '''Generate index for STAR'''
         safe_make_dir(output_dir)
-        create_empty_outputs(outputs)
         genome_fa, gene_gtf = inputs
         cores = self.get_stage_options("align", "cores")
         command = "STAR --runThreadN {n_threads} --runMode genomeGenerate " \
@@ -109,7 +108,7 @@ class PipelineStages(Stages):
 
     def create_hisat_index(self, inputs, outputs, hisat_basename):
         '''Generate index for HISAT2'''
-        safe_make_dir(path.dirname(hisat_basename))
+        safe_make_dir(os.path.dirname(hisat_basename))
         genome_fa, gene_gtf = inputs
         cores = self.get_stage_options("build_index", "cores")
         command = "hisat2-build -p {n_threads} {genome_fa} {basename}" \
@@ -117,49 +116,63 @@ class PipelineStages(Stages):
                       basename=hisat_basename)
         run_stage(self.state, "hisat", command)
 
-    def star_align(self, inputs, outputs, ref_dir, seqfile_dict):
+    def star_align(self, inputs, output, ref_dir, sample):
         '''Align fastq files with STAR'''
-        safe_make_dir(path.dirname(outputs))  # TODO: Change to list if multiple outputs
-        print(seqfile_dict)
-        create_empty_outputs(outputs)
+        output_dir = os.path.dirname(output)
+        safe_make_dir(output_dir)
+        #logging.debug(self.experiment.tr_dict[sample])
         cores = self.get_stage_options("align", "cores")
         # If PE fastq inputs, join into a string
         if self.paired_end:
             fastq_input = " ".join(inputs)
         else:
             fastq_input = inputs
-        print(fastq_input)
         command = "STAR --runThreadN {cores} --genomeDir {ref_dir} " \
-                  "--readFilesIn {fastq_input} --readFilesCommand zcat" \
-                  "".format(cores=cores, ref_dir=ref_dir, fastq_input=fastq_input)
-        # run_stage(self.state, 'star_align', command)
-        # TODO: Add stranded information
-        #       Include unmapped reads in the file
+                  "--readFilesIn {fastq_input} --readFilesCommand zcat " \
+                  "--outFileNamePrefix {output_dir}/{sample}.star. " \
+                  "--outSAMtype BAM Unsorted " \
+                  "--outSAMunmapped Within " \
+                  "".format(cores=cores, ref_dir=ref_dir, fastq_input=fastq_input, 
+                          output_dir=output_dir, sample=sample)
+        run_stage(self.state, 'star', command)
+        # TODO: Add stranded and RG info
 
-    def hisat_align(self, inputs, outputs, ref_basename, sm, id, lb, ln):
-        '''Align fastq files with HISAT2'''
-        cores = self.get_stage_options("align", "cores")
+    def hisat_align(self, inputs, output, ref_basename, sample):
+        '''Align fastq files with HISAT2 and sort'''
+        cores = self.get_stage_options("hisat", "cores")
+        mem = "{}G".format(self.get_stage_options("hisat", "mem"))
+        safe_make_dir(os.path.dirname(output))
+        #logging.debug(self.experiment.tr_dict[sample])
+        output_log = re.sub(".bam$", ".log", output)
         # If PE fastq inputs, use hisat -1 and -2 arguments, else use -U
         if self.paired_end:
             fastq_input = "-1 {fastq_R1} -2 {fastq_R2}".format(
                               fastq_R1=inputs[0], fastq_R2=inputs[1])
         else:
             fastq_input = "-U {fastq}".format(fastq=inputs)
+        # Get RG information
+        info = self.experiment.tr_dict[sample]
         command = "hisat2 --dta-cufflinks --rg-id {id}_{ln} --rg SM:{sm} " \
                   "--rg LB:{lb} --rg PL:Illumina -x {ref_basename} " \
-                  "{fastq_input}".format(id=id, ln=ln, sm=sm, lb=lb,
-                      ref_basename=ref_basename, fastq_input=fastq_input)
-        # run_stage(self.state, "hisat_align", command)
+                  "{fastq_input} 2> {output_log} | samtools view -bS - > " \
+                  "{output_bam} 2>> {output_log}" \
+                  "".format(id=info.id, ln=info.lane, 
+                          sm=info.sample_name, lb=info.library,
+                          ref_basename=ref_basename, fastq_input=fastq_input,
+                          output_bam=output, output_log=output_log)
+        run_stage(self.state, "hisat", command)
+        # TODO: Make sure unmapped reads are included in the bam file
+        #       Is it a good idea for BAMs to be cufflinks compatible?
 
-    def sort_bam_by_coordinate(self, input, output):
+    def sort_bam_by_coordinate(self, input, outputs):
         '''Sort BAM file by coordinates and then index'''
-        create_empty_outputs(output)
+        output_bam = outputs[0]
         # Provide a bit of room between memory requested and samtools max memory
-        mem = int(self.get_stage_options("samtools", "mem")) - 2
-        command = "samtools sort -m {mem}G -o {output} {input} && " \
-                  "samtools index {output}".format(mem=mem, output=output,
+        mem = min(int(self.get_stage_options("samtools", "mem")) - 2, 1)
+        command = "samtools sort -f -m {mem}G {input} {output} && " \
+                  "samtools index {output}".format(mem=mem, output=output_bam,
                       input=input)
-        # run_stage(self.state, "sort_bam_by_coordinate", command)
+        run_stage(self.state, "samtools", command)
 
     def merge_bams(self, inputs, output):
         '''Merge multiple BAM files into one BAM file. Make a symlink if

@@ -11,7 +11,7 @@ OUTPUT_PATHS = {
 }
 
 # Default metadata for sequencing files
-DEFAULT_METADATA = {"id": "id", "lb": "lb", "r": "R1", "lane": None}
+DEFAULT_METADATA = {"id": "id", "lb": "library", "r": "R1", "lane": "L000"}
 
 # Error codes
 EXIT_INVALID_ARGUMENT = 2

@@ -29,6 +29,26 @@ def make_output_dirs(output_dict):
     for dir in output_dict.values():
         safe_make_dir(dir)
 
+def check_paired_files(R1, R2):
+    files_1 = [re.sub("_R1.fastq.gz$", "", x) for x in R1]
+    files_2 = [re.sub("_R2.fastq.gz$", "", x) for x in R2]
+    if not (sorted(files_1) == sorted(files_2)):
+        logging.critical("Incorrect pairings")
+        sys.exit(99)   ## TODO
+    return
+
+def read_csv(filename):
+    '''Read in CSV file and remove comments after '#' and empty lines'''
+    csv_list = []
+    with open(filename) as f:
+        contents = f.read().split("\n")
+    # Remove comments and empty lines
+    for line in contents:
+        line = line.partition('#')[0].strip()
+        if line:
+            csv_list.append(line)
+    return csv_list
+
 # Copied from http://www.ruffus.org.uk/faq.html
 def re_symlink(input_file, soft_link_name):
     '''
