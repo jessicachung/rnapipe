@@ -18,6 +18,7 @@ class Experiment(object):
         # Config options 
         self.paired_end = state.config.get_options("paired_end")
         self.trim_reads = state.config.get_options("trim_reads")
+        self.stranded = state.config.get_options("stranded")
         self.alignment_method = state.config.get_options("alignment_method").lower()
         self.count_method = state.config.get_options("count_method").lower()
 
@@ -66,6 +67,9 @@ class Experiment(object):
             logging.critical("Error: Invalid count_method in config file. " \
                     "Valid options are ['featureCounts', 'HTSeq-count'].")
             exit(EXIT_INVALID_ARGUMENT)
+        if self.stranded not in ["yes", "no", "reverse", True, False]:
+            logging.critical("Error: Invalid stranded setting in config file. " \
+                    "Valid options are ['yes', 'no', 'reverse'].")
 
     def check_paired_files(self):
         files_1 = [re.sub("_R1.fastq.gz$", "", x) for x in self.R1_files]

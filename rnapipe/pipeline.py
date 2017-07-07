@@ -143,7 +143,7 @@ def make_pipeline(state):
             task_func=stages.trim_reads,
             name="trim_reads",
             input=output_from("original_fastqs"),
-            filter=formatter(".+/(?P<sample>[a-zA-Z0-9_]+)_R1.fastq.gz"),
+            filter=formatter(".+/(?P<sample>[a-zA-Z0-9-_]+)_R1.fastq.gz"),
             output=path.join(output_dir["seq"],
                              "{sample[0]}_R1.trimmed.fastq.gz"))
     else:
@@ -163,7 +163,7 @@ def make_pipeline(state):
             task_func=stages.fastqc,
             name="post_trim_fastqc",
             input=output_from("trim_reads"),
-            filter=formatter(".+/(?P<sample>[a-zA-Z0-9_]+)_R1.trimmed.fastq.gz"),
+            filter=formatter(".+/(?P<sample>[a-zA-Z0-9-_]+)_R1.trimmed.fastq.gz"),
             output=path_list_join(output_dir["post_trim_fastqc"],
                        ["{sample[0]}_R1.trimmed_fastqc.gz",
                         "{sample[0]}_R2.trimmed_fastqc.gz"]),
@@ -216,21 +216,29 @@ def make_pipeline(state):
                 "{path[0]}/{sample[0]}.{method[0]}.sorted.bam.bai"])
 
     # Merge files with the same sample name
-    # if technical_replicates:
-        # merge_task_name = "merge_bams"
-    pipeline.collate(
-        task_func=stages.merge_bams,
-        name="merge_bams",
-        input=output_from("sort_bam_by_coordinate"),
-        filter=formatter(".+/SM_(?P<sm>[a-zA-Z0-9-]+)_ID_.+.bam"),
-        output="%s/{sm[0]}/{sm[0]}.sorted.bam" % output_dir["alignments"])
+    if experiment.multiple_technical_replicates:
+        pipeline.collate(
+            task_func=stages.merge_bams,
+            name="merge_bams",
+            input=output_from("sort_bam_by_coordinate"),
+            filter=formatter(".+/(SM_)?(?P<sm>[a-zA-Z0-9-]+)[^.]*\.(?P<method>(star|hisat2)).sorted.bam"),
+            output=path_list_join(output_dir["alignments"],
+                ["{sm[0]}.{method[0]}.bam", "{sm[0]}.{method[0]}.bam.bai"]))
+    else:
+        pipeline.transform(
+            task_func=stages.create_symlinks,
+            name="merge_bams",
+            input=output_from("sort_bam_by_coordinate"),
+            filter=formatter(".+/(SM_)?(?P<sm>[a-zA-Z0-9-]+)[^.]*\.(?P<method>(star|hisat2)).sorted.bam"),
+            output=path_list_join(output_dir["alignments"],
+                ["{sm[0]}.{method[0]}.bam", "{sm[0]}.{method[0]}.bam.bai"]))
 
     # Sort BAM by name for counting features
     pipeline.transform(
         task_func=stages.sort_bam_by_name,
         name="sort_bam_by_name",
         input=output_from("merge_bams"),
-        filter=suffix(".sorted.bam"),
+        filter=suffix(".bam"),
         output=".nameSorted.bam")
 
     # Count features with HTSeq-count

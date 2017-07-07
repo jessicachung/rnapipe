@@ -7,7 +7,7 @@ the state parameter, has full access to the state of the pipeline, such
 as config, options, DRMAA and the logger.
 '''
 
-from pipeline_base.utils import safe_make_dir, run_java
+from pipeline_base.utils import safe_make_dir
 from pipeline_base.stages import Stages
 from pipeline_base.runner import run_stage
 import os
@@ -38,17 +38,28 @@ class PipelineStages(Stages):
         self.gene_ref = self.get_options("gene_ref")
         self.adapter_seq = self.get_options("adapter_seq")
         self.trimmomatic_parameters = self.get_options("trimmomatic_parameters")
-        self.stranded = self.get_options("stranded")
         self.paired_end = self.get_options("paired_end")
         self.experiment = experiment
 
+    def java_command(jar_path, mem_in_gb, command_args):
+        '''Build a string for running a java command'''
+        # Bit of room between Java's max heap memory and what was requested.
+        # Allows for other Java memory usage, such as stack.
+        java_mem = min(mem_in_gb - 2, 1)
+        return 'java -Xmx{mem}g -jar {jar_path} {command_args}'.format(
+            jar_path=jar_path, mem=java_mem, command_args=command_args)
+    
+    def run_java(state, stage, jar_path, mem, args):
+        command = self.java_command(jar_path, mem, args)
+        run_stage(state, stage, command)
+
     def run_picard(self, stage, args):
         mem = int(self.state.config.get_stage_options(stage, "mem"))
-        return run_java(self.state, stage, PICARD_JAR, mem, args)
+        return self.run_java(self.state, stage, PICARD_JAR, mem, args)
     
     def run_trimmomatic(self, stage, args):
         mem = int(self.state.config.get_stage_options(stage, "mem"))
-        return run_java(self.state, stage, TRIMMOMATIC_JAR, mem, args)
+        return self.run_java(self.state, stage, TRIMMOMATIC_JAR, mem, args)
 
     def do_nothing(self, *args):
         '''Do nothing'''
@@ -58,17 +69,21 @@ class PipelineStages(Stages):
         '''
         Make symlinks in the results directory
         '''
-        re_symlink(input, output)
+        if isinstance(input, str):
+            input = [str]
+        for src, dest in zip(input, output):
+            re_symlink(src, dest)
 
 
     def fastqc(self, input, outputs, fastqc_dir):
         '''Run FastQC on fastq files'''
         safe_make_dir(fastqc_dir)
         # If multiple fastq inputs, join into a string
-        fastq_input = " ".join(list(input))
+        if isinstance(input, tuple) or isinstance(input, list):
+            input = " ".join(input)
         command = "fastqc -o {fastqc_dir} -f fastq {fastq_input}".format(
                       fastqc_dir=fastqc_dir,
-                      fastq_input=fastq_input)
+                      fastq_input=input)
         run_stage(self.state, "fastqc", command)
 
     def trim_reads(self, inputs, outputs, unpaired_R1=None, unpaired_R2=None):
@@ -152,11 +167,11 @@ class PipelineStages(Stages):
             fastq_input = "-U {fastq}".format(fastq=inputs)
         # Get RG information
         info = self.experiment.tr_dict[sample]
-        command = "hisat2 --dta-cufflinks --rg-id {id}_{ln} --rg SM:{sm} " \
+        command = "hisat2 -p {n_threads} --dta-cufflinks --rg-id {id}_{ln} --rg SM:{sm} " \
                   "--rg LB:{lb} --rg PL:Illumina -x {ref_basename} " \
                   "{fastq_input} 2> {output_log} | samtools view -bS - > " \
                   "{output_bam} 2>> {output_log}" \
-                  "".format(id=info.id, ln=info.lane, 
+                  "".format(n_threads=cores, id=info.id, ln=info.lane, 
                           sm=info.sample_name, lb=info.library,
                           ref_basename=ref_basename, fastq_input=fastq_input,
                           output_bam=output, output_log=output_log)
@@ -168,8 +183,8 @@ class PipelineStages(Stages):
         '''Sort BAM file by coordinates and then index'''
         output_bam = outputs[0]
         # Provide a bit of room between memory requested and samtools max memory
-        mem = min(int(self.get_stage_options("samtools", "mem")) - 2, 1)
-        command = "samtools sort -f -m {mem}G {input} {output} && " \
+        mem = min(int(self.get_stage_options("samtools", "mem")) - 2, 1)     ##### TODO: This doesn't work
+        command = "samtools sort -m {mem}G {input} > {output} && " \
                   "samtools index {output}".format(mem=mem, output=output_bam,
                       input=input)
         run_stage(self.state, "samtools", command)
@@ -180,28 +195,36 @@ class PipelineStages(Stages):
         if len(inputs) == 1:
             re_symlink(inputs[0], output)
         else:
-            create_empty_outputs(output)
-            command = "samtools merge {output} {bam_inputs}".format(
-                          output=output, bam_inputs=" ".join(inputs))
-            # run_stage(self.state, "merge_bams", command)
+            # Select only bams and not bais, which is the first item in the list
+            bam_inputs = " ".join([x[0] for x in inputs])
+            bam_output = output[0]
+            command = "samtools merge {output} {bam_inputs} && samtools index {output}".format(
+                          output=bam_output, bam_inputs=bam_inputs)
+            run_stage(self.state, "samtools", command)
 
     def sort_bam_by_name(self, input, output):
         '''Sort BAM file by name'''
-        create_empty_outputs(output)
         # Provide a bit of room between memory requested and samtools max memory
-        mem = int(self.get_stage_options("samtools", "mem")) - 2
-        command = "samtools sort -n -m {mem}G {output} {input}".format(
-                      mem=mem, output=output, input=input)
-        # run_stage(self.state, "sort_bam_by_name", command)
+        mem = min(int(self.get_stage_options("samtools", "mem")) - 2, 1)
+        input_bam = input[0]  ### TODO: Change mem back to {mem}G
+        command = "samtools sort -n -m 3G {input} > {output}".format(
+                      mem=mem, input=input_bam, output=output)
+        run_stage(self.state, "samtools", command)
 
     def htseq_count(self, input, output):
         '''Count features with HTSeq-count'''
-        create_empty_outputs(output)
-        command = "samtools view -h {input} | htseq-count --mode=union " \
+        # YAML converts yes/no to true/false, so we need to convert it back
+        if self.experiment.stranded == True:
+            stranded = "yes"
+        elif self.experiment.stranded == False:
+            stranded = "no"
+        else:
+            stranded = self.experiment.stranded
+        command = "htseq-count --format=bam --mode=union --order=name " \
                    "--stranded={stranded} - {gtf_file} > {output}".format(
-                       input=input, stranded=self.stranded,
+                       input=input, stranded=stranded,
                        gtf_file=self.gene_ref, output=output)
-        # run_stage(self.state, "htseq_count", command)
+        run_stage(self.state, "htseq_count", command)
 
     def featurecounts(self, input, output):
         '''Count features with featureCounts'''
