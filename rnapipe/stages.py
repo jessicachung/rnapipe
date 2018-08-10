@@ -29,7 +29,8 @@ java_tmp = "-Djava.io.tmpdir=$TMPDIR"
 
 # Local
 java_tmp = ""
-TRIMMOMATIC_JAR = "/mnt/transient_nfs/anaconda3/share/trimmomatic-0.36-3/trimmomatic.jar"
+# TRIMMOMATIC_JAR = "/mnt/transient_nfs/anaconda3/share/trimmomatic-0.36-3/trimmomatic.jar"
+TRIMMOMATIC_JAR = "/mnt/galaxy/gvl/anaconda2/share/trimmomatic-0.36-5/trimmomatic.jar"
 
 class PipelineStages(Stages):
     def __init__(self, state, experiment, *args, **kwargs):
@@ -41,7 +42,7 @@ class PipelineStages(Stages):
         self.paired_end = self.get_options("paired_end")
         self.experiment = experiment
 
-    def java_command(jar_path, mem_in_gb, command_args):
+    def java_command(self, jar_path, mem_in_gb, command_args):
         '''Build a string for running a java command'''
         # Bit of room between Java's max heap memory and what was requested.
         # Allows for other Java memory usage, such as stack.
@@ -49,7 +50,7 @@ class PipelineStages(Stages):
         return 'java -Xmx{mem}g -jar {jar_path} {command_args}'.format(
             jar_path=jar_path, mem=java_mem, command_args=command_args)
     
-    def run_java(state, stage, jar_path, mem, args):
+    def run_java(self, state, stage, jar_path, mem, args):
         command = self.java_command(jar_path, mem, args)
         run_stage(state, stage, command)
 
@@ -70,7 +71,9 @@ class PipelineStages(Stages):
         Make symlinks in the results directory
         '''
         if isinstance(input, str):
-            input = [str]
+            input = [input]
+        if isinstance(output, str):
+            output = [output]
         for src, dest in zip(input, output):
             re_symlink(src, dest)
 
@@ -183,7 +186,7 @@ class PipelineStages(Stages):
         '''Sort BAM file by coordinates and then index'''
         output_bam = outputs[0]
         # Provide a bit of room between memory requested and samtools max memory
-        mem = min(int(self.get_stage_options("samtools", "mem")) - 2, 1)     ##### TODO: This doesn't work
+        mem = max(int(self.get_stage_options("samtools", "mem")) - 2, 1)
         command = "samtools sort -m {mem}G {input} > {output} && " \
                   "samtools index {output}".format(mem=mem, output=output_bam,
                       input=input)
@@ -205,9 +208,9 @@ class PipelineStages(Stages):
     def sort_bam_by_name(self, input, output):
         '''Sort BAM file by name'''
         # Provide a bit of room between memory requested and samtools max memory
-        mem = min(int(self.get_stage_options("samtools", "mem")) - 2, 1)
-        input_bam = input[0]  ### TODO: Change mem back to {mem}G
-        command = "samtools sort -n -m 3G {input} > {output}".format(
+        mem = max(int(self.get_stage_options("samtools", "mem")) - 2, 1)
+        input_bam = input[0]
+        command = "samtools sort -n -m {mem}G {input} > {output}".format(
                       mem=mem, input=input_bam, output=output)
         run_stage(self.state, "samtools", command)
 

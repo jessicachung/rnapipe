@@ -17,7 +17,7 @@ setup(
      with support for running pipeline stages on a distributed compute cluster.',
     long_description=open('README.md').read(),
     install_requires=[
-        "ruffus == 2.6.3",
+        "ruffus == 2.7.0",
         "drmaa == 0.7.6",
         "PyYAML == 3.11"
     ],

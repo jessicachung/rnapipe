@@ -51,6 +51,8 @@ class Experiment(object):
         self.R1_files = [tr.R1_path for tr in tr_list]
         if self.paired_end:
             self.R2_files = [tr.R2_path for tr in tr_list]
+        else:
+            self.R2_files = []
 
         # Check
         self.check_paired_files()

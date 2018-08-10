@@ -2,6 +2,7 @@
 Various utility functions that don't have a sensible home elsewhere
 '''
 import os
+import shutil
 import logging
 from rnapipe.pipeline_base.utils import safe_make_dir
 
@@ -74,5 +75,7 @@ def re_symlink(input_file, soft_link_name):
     #   symbolic link relative to original directory so that the entire path
     #       can be moved around with breaking everything
     #
-    os.symlink( os.path.relpath(os.path.abspath(input_file),
-                os.path.abspath(os.path.dirname(soft_link_name))), soft_link_name)
+    #os.symlink( os.path.relpath(os.path.abspath(input_file),
+    #            os.path.abspath(os.path.dirname(soft_link_name))), soft_link_name)
+    # FIXME: Changed to copy files for the moment because ruffus complains about incorrect timestamps
+    shutil.copyfile( input_file, soft_link_name)

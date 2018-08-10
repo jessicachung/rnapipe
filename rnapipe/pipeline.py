@@ -149,13 +149,25 @@ def make_pipeline(state):
     else:
         # If trimming is skipped, create symlinks of FASTQ files in seq dir
         ### TODO
-        pipeline.transform(
-            task_func=stages.create_symlinks,
-            name="trim_reads",
-            input=output_from("original_fastqs"),
-            filter=suffix(""),
-            output_dir=output_dir["seq"],
-            output="")
+        if experiment.paired_end:
+            pipeline.transform(
+                task_func=stages.create_symlinks,
+                name="trim_reads",
+                input=output_from("original_fastqs"),
+                # Get R1 file and the corresponding R2 file
+                filter=formatter(".+/(?P<sample>[a-zA-Z0-9-_]+)_R1.fastq.gz"),
+                add_inputs=add_inputs("{path[0]}/{sample[0]}_R2.fastq.gz"),
+                output=path_list_join(output_dir["seq"],
+                           ["{sample[0]}_R1.fastq.gz",
+                            "{sample[0]}_R2.fastq.gz"]))
+        else:
+            pipeline.transform(
+                task_func=stages.create_symlinks,
+                name="trim_reads",
+                input=output_from("original_fastqs"),
+                filter=suffix("fastq.gz"),
+                output_dir=output_dir["seq"],
+                output="fastq.gz")
 
     # Post-trim FastQC
     if experiment.paired_end and experiment.trim_reads:
@@ -259,5 +271,6 @@ def make_pipeline(state):
         output_dir=output_dir["counts"],
         output=".featureCounts.txt")
 
+    # TODO: add multiqc step
 
     return pipeline
