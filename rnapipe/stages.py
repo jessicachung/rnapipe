@@ -220,8 +220,13 @@ class PipelineStages(Stages):
             stranded = "no"
         else:
             stranded = self.experiment.stranded
+        # command = "samtools view -h -F 4 {input} | " \
+        #           "htseq-count --format=sam --mode=union --order=name " \
+        #           "--stranded={stranded} - {gtf_file} > {output}".format(
+        #                input=input, stranded=stranded,
+        #                gtf_file=self.gene_ref, output=output)
         command = "htseq-count --format=bam --mode=union --order=name " \
-                   "--stranded={stranded} - {gtf_file} > {output}".format(
+                  "--stranded={stranded} {input} {gtf_file} > {output}".format(
                        input=input, stranded=stranded,
                        gtf_file=self.gene_ref, output=output)
         run_stage(self.state, "htseq_count", command)
