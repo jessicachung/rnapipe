@@ -3,7 +3,7 @@ Various utility functions that don't have a sensible home elsewhere
 '''
 import os
 import logging
-from pipeline_base.utils import safe_make_dir
+from rnapipe.pipeline_base.utils import safe_make_dir
 
 def path_list_join(dir, file_list):
     '''Join directory to a list of files'''

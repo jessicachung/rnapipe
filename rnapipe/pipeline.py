@@ -4,7 +4,7 @@ Build the pipeline workflow by plumbing the stages together.
 
 from ruffus import Pipeline, suffix, formatter, add_inputs, output_from
 from rnapipe.stages import PipelineStages
-from pipeline_base.utils import safe_make_dir
+from rnapipe.pipeline_base.utils import safe_make_dir
 from rnapipe.experiment import Experiment
 from os import path
 from rnapipe.utils import *

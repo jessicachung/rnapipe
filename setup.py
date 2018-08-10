@@ -7,7 +7,7 @@ setup(
     version='0.0.1',
     author='Jessica Chung, Bernie Pope',
     author_email='jchung@unimelb.edu.au',
-    packages=['rnapipe'],
+    packages=['rnapipe', 'rnapipe.pipeline_base'],
     entry_points={
         'console_scripts': ['rnapipe = rnapipe.main:main']
     },
@@ -17,6 +17,8 @@ setup(
      with support for running pipeline stages on a distributed compute cluster.',
     long_description=open('README.md').read(),
     install_requires=[
-        "ruffus == 2.6.3"
+        "ruffus == 2.6.3",
+        "drmaa == 0.7.6",
+        "PyYAML == 3.11"
     ],
 )

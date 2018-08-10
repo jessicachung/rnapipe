@@ -7,9 +7,9 @@ the state parameter, has full access to the state of the pipeline, such
 as config, options, DRMAA and the logger.
 '''
 
-from pipeline_base.utils import safe_make_dir
-from pipeline_base.stages import Stages
-from pipeline_base.runner import run_stage
+from rnapipe.pipeline_base.utils import safe_make_dir
+from rnapipe.pipeline_base.stages import Stages
+from rnapipe.pipeline_base.runner import run_stage
 import os
 from rnapipe.utils import *
 import re
