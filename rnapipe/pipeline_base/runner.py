@@ -54,7 +54,10 @@ def run_stage(state, stage, command):
         account_option = ''
     try:
         modules = config.get_stage_option(stage, 'modules')
-        module_loads = '\n'.join(['module load ' + module for module in modules])
+#        module_loads = '\n'.join(['module load ' + module for module in modules])
+        # Change this so any code (e.g. activating a conda env) can be executed 
+        # instead of only module loads
+        module_loads = '\n'.join(modules)
     except:
         module_loads = ''
 
