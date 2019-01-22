@@ -273,4 +273,30 @@ def make_pipeline(state):
 
     # TODO: add multiqc step
 
+#     # Stringtie assembly
+#     pipeline.transform(
+#         task_func=stages.stringtie_assembly,
+#         name="stringtie_assembly",
+#         input=output_from("merge_bams"),
+#         filter=suffix(".bam"),
+#         output_dir=output_dir["stringtie_assembly"],
+#         output=".gtf")
+
+    # Stringtie estimates
+    pipeline.transform(
+        task_func=stages.stringtie_estimates,
+        name="stringtie_estimates",
+        input=output_from("merge_bams"),
+        filter=formatter(".+/(?P<sm>[a-zA-Z0-9-]+)\.(?P<method>(star|hisat2)).bam"),
+        output=path_list_join(output_dir["stringtie_estimates"],
+                              ["{sm[0]}/{sm[0]}.gtf", "{sm[0]}/e_data.ctab"]))
+
+    # Stringtie counts
+    pipeline.collate(
+        task_func=stages.stringtie_prepDE,
+        name="stringtie_prepDE",
+        input=output_from("stringtie_estimates"),
+        filter=formatter(".+\.gtf"),
+        output=path_list_join(output_dir["stringtie_estimates"],
+                              ["gene_count_matrix.csv", "transcript_count_matrix.csv"]))
     return pipeline

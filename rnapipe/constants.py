@@ -7,6 +7,8 @@ OUTPUT_PATHS = {
     "star_index": "reference/star",
     "hisat_index": "reference/hisat",
     "counts": "counts",
+    #"stringtie_assembly": "stringtie_assemblies",
+    "stringtie_estimates": "stringtie_estimates",
     "analysis": "analysis"
 }
 

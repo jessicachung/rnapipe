@@ -32,6 +32,9 @@ java_tmp = ""
 # TRIMMOMATIC_JAR = "/mnt/transient_nfs/anaconda3/share/trimmomatic-0.36-3/trimmomatic.jar"
 TRIMMOMATIC_JAR = "/mnt/galaxy/gvl/anaconda2/share/trimmomatic-0.36-5/trimmomatic.jar"
 
+# Spartan
+TRIMMOMATIC_JAR = "/usr/local/easybuild/software/Trimmomatic/0.36/trimmomatic-0.36.jar"
+
 class PipelineStages(Stages):
     def __init__(self, state, experiment, *args, **kwargs):
         super(PipelineStages, self).__init__(state, *args, **kwargs)
@@ -168,14 +171,21 @@ class PipelineStages(Stages):
                               fastq_R1=inputs[0], fastq_R2=inputs[1])
         else:
             fastq_input = "-U {fastq}".format(fastq=inputs)
+        if self.experiment.stranded == "FR":
+            stranded = "--rna-strandness FR"
+        elif self.experiment.stranded == "RF":
+            stranded = "--rna-strandness RF"
+        else:
+            stranded = ""
         # Get RG information
         info = self.experiment.tr_dict[sample]
-        command = "hisat2 -p {n_threads} --dta-cufflinks --rg-id {id}_{ln} --rg SM:{sm} " \
+        command = "hisat2 -p {n_threads} --dta {stranded} " \
+                  "--rg-id {sm}_{id}_{ln} --rg SM:{sm} " \
                   "--rg LB:{lb} --rg PL:Illumina -x {ref_basename} " \
                   "{fastq_input} 2> {output_log} | samtools view -bS - > " \
                   "{output_bam} 2>> {output_log}" \
-                  "".format(n_threads=cores, id=info.id, ln=info.lane, 
-                          sm=info.sample_name, lb=info.library,
+                  "".format(n_threads=cores, stranded=stranded, id=info.id, 
+                          ln=info.lane, sm=info.sample_name, lb=info.library,
                           ref_basename=ref_basename, fastq_input=fastq_input,
                           output_bam=output, output_log=output_log)
         run_stage(self.state, "hisat", command)
@@ -217,12 +227,12 @@ class PipelineStages(Stages):
     def htseq_count(self, input, output):
         '''Count features with HTSeq-count'''
         # YAML converts yes/no to true/false, so we need to convert it back
-        if self.experiment.stranded == True:
+        if self.experiment.stranded == "FR":
             stranded = "yes"
-        elif self.experiment.stranded == False:
-            stranded = "no"
+        elif self.experiment.stranded == "RF":
+            stranded = "reverse"
         else:
-            stranded = self.experiment.stranded
+            stranded = "no"
         # command = "samtools view -h -F 4 {input} | " \
         #           "htseq-count --format=sam --mode=union --order=name " \
         #           "--stranded={stranded} - {gtf_file} > {output}".format(
@@ -239,3 +249,41 @@ class PipelineStages(Stages):
         create_empty_outputs(output)
         command = ""
         # run_stage(self.state, "featurecounts", command)
+
+
+#     def stringtie_assembly(self, inputs, output):
+#         '''Assemble transcripts with stringtie'''
+#         input = inputs[0]
+#         # XXX: handle SE cases?
+#         if self.experiment.stranded == "FR":
+#             stranded = "--fr"
+#         elif self.experiment.stranded == "RF":
+#             stranded = "--rf"
+#         else:
+#             stranded = ""
+#         cores = self.get_stage_options("stringtie", "cores")
+#         command = "stringtie -p {cores} {stranded} -l STRG -G {gtf} " \
+#                   "-o {output} {input}".format(cores=cores,
+#                       stranded=stranded, gtf=self.gene_ref,
+#                       output=output, input=input)
+#         run_stage(self.state, "stringtie", command)
+
+    def stringtie_estimates(self, inputs, outputs):
+        '''Get expression estimates with stringtie'''
+        input = inputs[0]
+        output_gtf = outputs[0]
+        cores = self.get_stage_options("stringtie", "cores")
+        command = "stringtie -p {cores} -e -B -G {gtf} -o {output} " \
+                  "{input}".format(cores=cores, gtf=self.gene_ref,
+                      output=output_gtf, input=input)
+        run_stage(self.state, "stringtie", command)
+
+    def stringtie_prepDE(self, inputs, outputs):
+        '''Create count matrices'''
+        input_dir = os.path.dirname(os.path.dirname(inputs[0][0]))
+        command = "prepDE.py -i {input_dir} -g {gene_matrix} " \
+                  "-t {transcript_matrix} -l 75".format(
+                      input_dir=input_dir, gene_matrix=outputs[0],
+                      transcript_matrix=outputs[1])
+        run_stage(self.state, "stringtie", command)
+
