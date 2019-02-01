@@ -125,7 +125,7 @@ class PipelineStages(Stages):
                   "--sjdbGTFfile {gene_gtf}".format(n_threads=cores,
                       output_dir=output_dir, genome_fa=genome_fa,
                       gene_gtf=gene_gtf)
-        run_stage(self.state, "star", command)
+        run_stage(self.state, "build_index", command)
 
     def create_hisat_index(self, inputs, outputs, hisat_basename):
         '''Generate index for HISAT2'''
@@ -135,7 +135,7 @@ class PipelineStages(Stages):
         command = "hisat2-build -p {n_threads} {genome_fa} {basename}" \
                   "".format(n_threads=cores, genome_fa=genome_fa, gene_gtf=gene_gtf,
                       basename=hisat_basename)
-        run_stage(self.state, "hisat", command)
+        run_stage(self.state, "build_index", command)
 
     def star_align(self, inputs, output, ref_dir, sample):
         '''Align fastq files with STAR'''
@@ -171,10 +171,8 @@ class PipelineStages(Stages):
                               fastq_R1=inputs[0], fastq_R2=inputs[1])
         else:
             fastq_input = "-U {fastq}".format(fastq=inputs)
-        if self.experiment.stranded == "FR":
-            stranded = "--rna-strandness FR"
-        elif self.experiment.stranded == "RF":
-            stranded = "--rna-strandness RF"
+        if self.experiment.stranded in ["FR", "RF", "F", "R"]:
+            stranded = "--rna-strandness {}".format(self.experiment.stranded)
         else:
             stranded = ""
         # Get RG information
