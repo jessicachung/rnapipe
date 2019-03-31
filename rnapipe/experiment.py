@@ -69,9 +69,9 @@ class Experiment(object):
             logging.critical("Error: Invalid count_method in config file. " \
                     "Valid options are ['featureCounts', 'HTSeq-count'].")
             exit(EXIT_INVALID_ARGUMENT)
-        if self.stranded not in ["yes", "no", "reverse", True, False]:
+        if self.stranded not in ["no", "R", "F", "RF", "FR", False]:
             logging.critical("Error: Invalid stranded setting in config file. " \
-                    "Valid options are ['yes', 'no', 'reverse'].")
+                    "Valid options are ['no', 'R', 'F', 'RF', 'FR'].")
 
     def check_paired_files(self):
         files_1 = [re.sub("_R1.fastq.gz$", "", x) for x in self.R1_files]
